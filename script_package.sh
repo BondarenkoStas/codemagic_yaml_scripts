@@ -21,7 +21,7 @@ then
     cd $path
 fi
 
-flutter packages pub get
+flutter packages pub get || true
 
 if [ $analyze ] 
 then 
