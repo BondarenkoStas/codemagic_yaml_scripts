@@ -22,7 +22,7 @@ while [ -n "$1" ]; do
 	shift
 done
 
-cd "$path" && flutter packages pub get 
+cd "$path" && flutter packages pub get || true
 cd "$root"
 
 if [ $test ]
