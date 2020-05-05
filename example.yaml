@@ -1,0 +1,56 @@
+workflows:
+    stable-v1-12-13-hotfix-8:
+      name: v1.12.13+hotfix.8
+      environment:
+        flutter: v1.12.13+hotfix.8
+      triggering: &triggering
+        events:
+          - push
+        branch_patterns:
+          - pattern: codemagic
+            include: true
+            source: true
+      scripts: &script
+        - alias pub="$HOME/programs/flutter/bin/cache/dart-sdk/bin/pub"
+        - echo "get 2.0.4"
+        - wget -O archive.tar.gz "https://storage.googleapis.com/pub-packages/packages/uuid-2.0.4.tar.gz"
+        - mkdir source && tar -xvf archive.tar.gz -C ./source
+        - cd source && pub get || true
+        - cd source && pub run test || true
+        - rm -rf archive.tar.gz && rm -rf source
+        - echo "get 2.0.3"
+        - wget -O archive.tar.gz "https://storage.googleapis.com/pub-packages/packages/uuid-2.0.3.tar.gz"
+        - mkdir source && tar -xvf archive.tar.gz -C ./source
+        - cd source && pub get || true
+        - cd source && pub run test || true
+        - rm -rf archive.tar.gz && rm -rf source
+    stable-v1-9-1-hotfix-6:
+      name: v1.9.1+hotfix.6
+      environment:
+        flutter: v1.9.1+hotfix.6
+      triggering: *triggering
+      scripts: *script
+    beta-v1-14-6:
+      name: v1.14.6
+      environment:
+        flutter: v1.14.6
+      triggering: *triggering
+      scripts: *script
+    beta-v1-13-6:
+      name: v1.13.6
+      environment:
+        flutter: v1.13.6
+      triggering: *triggering
+      scripts: *script
+    dev-v1-15-3:
+      name: v1.15.3
+      environment:
+        flutter: v1.15.3
+      triggering: *triggering
+      scripts: *script
+    dev-v1-15-2:
+      name: v1.15.2
+      environment:
+        flutter: v1.15.2
+      triggering: *triggering
+      scripts: *script
