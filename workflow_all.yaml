@@ -1,0 +1,217 @@
+# Current limitations:
+#   Codemagic can't parse xcodebuild tests to output in a nice format
+#
+# Notes:
+#   Your Enterprise worklfow certificate has expired. You will need to add a new one and provisioning profile to be able to run the workflow
+#   You will need to connect Slack to be able to publish there (see https://docs.codemagic.io/publishing/email-and-slack-notifications/#slack)
+#   You will need to add app-specific password to app_store_connect publishing (see https://docs.codemagic.io/publishing/publishing-to-app-store/#requirements)
+#   You still have NEVERCODE_BUILD_NUMBER env var used. There are 3 ways to deal with it (let's say your Nevercode build has number 1068, and Codemagic's will be the first one):
+#     1) Change it with BUILD_NUMBER (equivalent env var on Codemagic)
+#     2) export the env var as `export NEVERCODE_BUILD_NUMBER=$(($BUILD_NUMBER + 1068))` right before your `xcode-project command`
+#     3) set the build number with agvtool before the build script `cd Avios && agvtool new-version -all $(($BUILD_NUMBER + 1060))`
+
+
+# Scripts are executed as separate processes, which means created in one script memory env vars won't be available in the next script
+# That's why you need to save exports to a file and the source it in another script which will need those variables
+# In the same time everything what you call from inside a script (e.g. nc_postclone.sh) is a subprocess and has access to the env vars available in the script
+#
+# Pay attention that strings encrypted as env vars can be used right away (e.g. NC_KEY_PASSWORD or GOOGLE_PLAY_CREDENTIALS), while files encrypted as env vars should be base64 decoded first (e.g. CM_CERTIFICATE)
+# In a long run it would make sense to change the scirpts in the repository to use Codemagic's env vars, not Nevercode ones, and simplify the workflows
+#
+# For app store connect publishing you need to fill APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD  (see https://support.apple.com/en-us/HT204397)
+# For slack notifications you need to first connect Slack (see https://docs.codemagic.io/publishing/email-and-slack-notifications/#slack)
+#
+# Your apple certificates (CM_CERTIFICATE) is exported with empty password. If you change it to a certificate with password, you will need to add an env var CM_CERTIFICATE_PASSWORD
+# and include it to the command as `keychain add-certificates --certificate /tmp/certificate.p12 --certificate-password $CM_CERTIFICATE_PASSWORD`
+
+workflows:
+  test-pr:
+    name: Test PR
+    instance_type: mac_pro
+    max_build_duration: 120
+    environment:
+      vars:
+        FCI_CLONE_DEPTH: 1
+        # automatic ios publishing
+        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
+        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(...)
+        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)
+        CERTIFICATE_PRIVATE_KEY: Encrypted(...)
+        # manual ios publishing
+        CM_CERTIFICATE: 
+        CM_PROVISIONING_PROFILE: 
+        # android code signing
+        CM_KEYSTORE: 
+        CM_KEYSTORE_PASSWORD: 
+        CM_KEY_ALIAS_PASSWORD: 
+        CM_KEY_ALIAS_USERNAME: 
+        # 
+        # 
+        SSH_KEY_GITHUB: 
+        FASTLANE_PASSWORD: 
+        MATCH_PASSWORD:
+        GCLOUD_SERVICE_CREDENTIALS:
+        GOOGLE_PLAY_CREDENTIALS:
+        APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD:
+      xcode: 11.4.1      
+      node: 12.13.1
+    cache:
+      cache_paths:
+        - $HOME/.fastlane
+        - $HOME/Carthage/Build/iOS/
+        - $FCI_BUILD_DIR/Carthage/Build/iOS/
+    triggering:
+      events:
+        - push
+        - pull_request
+        - tag
+      branch_patterns:
+        - pattern: 'test/*'
+          include: true
+          source: true
+    scripts:
+      - name: Redefine enverinment variables used in scripts after migration from Nevercode
+        script: |
+          mkdir $HOME/xunit_results
+          echo "export NEVERCODE_XUNIT_RESULTS_DIR=$HOME/xunit_results" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE=${CONTINUOUS_INTEGRATION}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_BRANCH=${FCI_BRANCH}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_BUILD_NUMBER=${BUILD_NUMBER}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_BUILD_DIR=${FCI_BUILD_DIR}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_EXPORT_DIR=${FCI_EXPORT_DIR}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_BUILD_OUTPUT_DIR=${FCI_BUILD_OUTPUT_DIR}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_REPO_SLUG=${FCI_REPO_SLUG}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_PULL_REQUEST=${FCI_PULL_REQUEST}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_PULL_REQUEST_NUMBER=${FCI_PULL_REQUEST_NUMBER}" >> ~/NEVERCODE_ENV_VARS.sh
+          echo "export NEVERCODE_XUNIT_RESULTS_DIR=$HOME/xunit_results" >> ~/NEVERCODE_ENV_VARS.sh
+    # prepare repo
+      - name: Install gems
+        script: |
+          gem install bundler
+          find . -name "Gemfile" -execdir bundle install --path "$HOME/vendor/bundle" \; -a -execdir bundle update \;
+      - name: Yarn install
+        script: yarn
+      - name: Install pods
+        script: find . -name "Podfile" -execdir pod repo update \; -a -execdir pod install \;
+    # build ios
+      - name: Set up keychain to be used for codesigning using Codemagic CLI 'keychain' command
+        script: |
+          keychain initialize
+      - name: Set up Provisioning profiles from environment variables
+        script: |
+          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          PROFILE_PATH="$(mktemp "$PROFILES_HOME"/$(uuidgen).mobileprovision)"
+          echo ${CM_PROVISIONING_PROFILE} | base64 --decode > $PROFILE_PATH
+          echo "Saved provisioning profile $PROFILE_PATH"
+      - name: Set up signing certificate
+        script: |
+          echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
+          keychain add-certificates --certificate /tmp/certificate.p12
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles
+      - name: Build ipa
+        script: |
+          export NEVERCODE_BUILD_NUMBER=$(($BUILD_NUMBER + 1068))
+          xcode-project build-ipa \
+            --workspace Avios/BAExec.xcworkspace \
+            --scheme Test \
+            --config Test
+    # test ios
+      - name: Test
+        script: |
+          set -o pipefail
+          xcodebuild \
+            -workspace Avios/BAExec.xcworkspace \
+            -scheme Test \
+            -config Test \
+            -sdk iphonesimulator \
+            -enableCodeCoverage YES \
+            -destination 'platform=iOS Simulator,name=iPhone 11 Pro Max,OS=13.4' \
+            test | xcpretty | tee "/tmp/xcodebuild_logs/xcodetest.log"
+    # build android
+      - name: Set up local properties
+        script: echo "sdk.dir=$HOME/programs/android-sdk-macosx" > "$FCI_BUILD_DIR/local.properties"
+      - name: Install gradle wrapper
+        script: |
+          GRADLE=$(find $HOME/programs/gradle-*/bin -name gradle | sort -r | head -1)
+          GRADLE_URL=$(cat gradle/wrapper/gradle-wrapper.properties | grep -w distributionUrl | cut -d= -f2 | sed 's@\\@@g')
+          $GRADLE wrapper --gradle-distribution-url $GRADLE_URL
+          ./gradlew --version 
+      - name: Build aab
+        script: ./gradlew -b app/build.gradle.kts bundleToyotaSwitchableDebug
+      - name: Sign aab and generate universal APK
+        script: |
+          CM_KEYSTORE_PATH='/tmp/keystore.keystore'
+          echo $CM_KEYSTORE | base64 --decode > $CM_KEYSTORE_PATH
+          AAB_PATH=$(find app/build/outputs/bundle -name "*.aab" | head -1)
+          jarsigner \
+            -sigalg SHA1withRSA \
+            -digestalg SHA1 \
+            -keystore $CM_KEYSTORE_PATH \
+            -storepass $CM_KEYSTORE_PASSWORD \
+            -keypass $CM_KEY_ALIAS_PASSWORD \
+            $AAB_PATH $CM_KEY_ALIAS_USERNAME
+          android-app-bundle build-universal-apk \
+            --bundle $AAB_PATH \
+            --ks $CM_KEYSTORE_PATH \
+            --ks-pass $CM_KEYSTORE_PASSWORD \
+            --ks-key-alias $CM_KEY_ALIAS_USERNAME \
+            --key-pass $CM_KEY_ALIAS_PASSWORD
+      # android firebase test lab
+      - name: Build APK for tests
+        script: ./gradlew -b app/build.gradle.kts assembleToyotaSwitchableDebugAndroidTest
+      - name: Authorize gcloud service account
+        script: |
+          GCLOUD_SERVICE_CREDENTIALS_PATH=$FCI_BUILD_DIR/google-services-credentials.json
+          echo $GCLOUD_SERVICE_CREDENTIALS | base64 --decode > $GCLOUD_SERVICE_CREDENTIALS_PATH
+          gcloud auth activate-service-account --key-file=$GCLOUD_SERVICE_CREDENTIALS_PATH
+          gcloud config set project woven-voyage-217607
+      - name: Test
+        script: |
+          APP_PATH=$(find app/build/outputs/bundle -name "*.apk" | head -1)
+          TEST_PATH=$(find app/build/outputs/apk/androidTest -name "*.apk" | head -1)
+          gcloud firebase test android run \
+            --app "$APP_PATH" \
+            --test "$TEST_PATH" \
+            --device "model=G8142,version=25" \
+            --timeout "45m" \
+            --type "instrumentation" \
+            --use-orchestrator \
+            --environment-variables "clearPackageData=true,numShards=5,shardIndex=0" \
+            --quiet
+      #
+      - name: Execute lane trigger_simulator_reset
+        script: |
+          bundle exec fastlane trigger_simulator_reset
+      # changelog
+      - name: Create changelog to publish to slack and email
+        script: |
+          if [[ -z ${FCI_PREVIOUS_COMMIT} ]]
+          then
+            echo "No finished builds found to generate changelog"
+          else
+            echo "$(git-changelog generate --previous-commit $FCI_PREVIOUS_COMMIT)" | tee release_notes.txt
+          fi
+    publishing:
+      slack: 
+        channel: '#'
+      email:
+        recipients:
+          - a@gmail.com
+      google_play:
+        credentials: ${GOOGLE_PLAY_CREDENTIALS_DECODED}
+        track: alpha
+      app_store_connect:
+        apple_id: a@gmail.com
+        password: ${APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD}
+    artifacts:
+    # ios artifacts
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    # android artifacts
+      - app/build/outputs/**/*.apk
+      - app/build/outputs/**/*.aab
+
