@@ -84,6 +84,10 @@ workflows:
           echo "export NEVERCODE_PULL_REQUEST=${FCI_PULL_REQUEST}" >> ~/NEVERCODE_ENV_VARS.sh
           echo "export NEVERCODE_PULL_REQUEST_NUMBER=${FCI_PULL_REQUEST_NUMBER}" >> ~/NEVERCODE_ENV_VARS.sh
           echo "export NEVERCODE_XUNIT_RESULTS_DIR=$HOME/xunit_results" >> ~/NEVERCODE_ENV_VARS.sh
+    - name: Pre-build script
+      script: |
+        export NEVERCODE_BRANCH=$FCI_BRANCH
+        chmod +x NC_PRE_BUILD_SCRIPT.sh && ./NC_PRE_BUILD_SCRIPT.sh
     # prepare repo
       - name: Install gems
         script: |
