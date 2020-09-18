@@ -1,0 +1,35 @@
+workflows:
+    android-using-plugin:
+      name: android_using_plugin
+      environment:
+        vars:
+          CM_KEYSTORE: <your_encrypted_keystore>
+          CM_KEYSTORE_PASSWORD: <your_encrypted_keystore_password>
+          CM_KEY_ALIAS_PASSWORD: <your_encrypted_key_password>
+          CM_KEY_ALIAS_USERNAME: <your_encrypted_key_name>
+        flutter: stable
+      triggering:
+        events:
+          - push
+        branch_patterns:
+          - pattern: 'branch_to_trigger'
+            include: true
+            source: true
+      scripts:
+        - |
+          # set up key.properties
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.keystore
+          cat >> "$FCI_BUILD_DIR/your_android_app/key.properties" <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_ALIAS_PASSWORD
+          keyAlias=$CM_KEY_ALIAS_USERNAME
+          storeFile=/tmp/keystore.keystore
+          EOF
+        - echo "sdk.dir=$HOME/programs/android-sdk-macosx" > "$FCI_BUILD_DIR/your_android_app/local.properties"
+        - |
+          cd flutter_module 
+          flutter pub get
+          flutter build aar
+        - cd android_using_prebuilt_module && ./gradlew assembleRelease
+      artifacts:
+        - your_android_app/app/build/outputs/**/**/*.apk

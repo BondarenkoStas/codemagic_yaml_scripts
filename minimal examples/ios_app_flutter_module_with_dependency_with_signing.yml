@@ -1,0 +1,42 @@
+workflows:
+    ios-flutter-module:
+      name: ios_flutter_module
+      environment:
+        vars:          
+          CM_CERTIFICATE: <your_encrypted_developer_certificate>
+          CM_CERTIFICATE_PASSWORD: <your_encrypted_developer_certificate_password>
+          CM_PROVISIONING_PROFILE: <your_encrypted_provisioning_profile>
+        xcode: latest
+        cocoapods: default
+        flutter: stable
+      triggering:
+        events:
+          - push
+        branch_patterns:
+          - pattern: 'target_branch'
+            include: true
+            source: true
+      scripts:
+        - keychain initialize
+        - |
+          # set up provisioning profiles
+          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          PROFILE_PATH="$(mktemp "$PROFILES_HOME"/$(uuidgen).mobileprovision)"
+          echo ${CM_PROVISIONING_PROFILE} | base64 --decode > $PROFILE_PATH
+          echo "Saved provisioning profile $PROFILE_PATH"
+        - |
+          # set up signing certificate
+          echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
+          keychain add-certificates --certificate /tmp/certificate.p12 --certificate-password $CM_CERTIFICATE_PASSWORD
+        - |
+          cd <flutter_module>
+          flutter pub get
+          flutter build ios --release --no-codesign
+          cd .ios && pod install
+        - cd <your_ios_application> && pod install
+        - xcode-project use-profiles
+        - xcode-project build-ipa --workspace "<your_ios_application>/<your_ios_application>.xcworkspace" --scheme "<your_scheme>"
+      artifacts:
+        - build/ios/ipa/*.ipa
+        - /tmp/xcodebuild_logs/*.log  

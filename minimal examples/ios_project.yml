@@ -1,0 +1,28 @@
+workflows:
+    ios-project:
+      name: ios_project
+      environment:
+        vars:
+          CM_CERTIFICATE: <your_encrypted_developer_certificate>
+          CM_CERTIFICATE_PASSWORD: <your_encrypted_developer_certificate_password>
+          CM_PROVISIONING_PROFILE: <your_encrypted_provisioning_profile>
+        xcode: latest
+        cocoapods: default
+      scripts:
+        - keychain initialize
+        - |
+          # set up provisioning profiles
+          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          PROFILE_PATH="$(mktemp "$PROFILES_HOME"/$(uuidgen).mobileprovision)"
+          echo ${CM_PROVISIONING_PROFILE} | base64 --decode > $PROFILE_PATH
+          echo "Saved provisioning profile $PROFILE_PATH"
+        - |
+          # set up signing certificate
+          echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
+          keychain add-certificates --certificate /tmp/certificate.p12 --certificate-password $CM_CERTIFICATE_PASSWORD
+        - xcode-project use-profiles
+        - xcode-project build-ipa --project "<your_xcode_project>.xcodeproj" --scheme "<your_scheme>"
+      artifacts:
+        - build/ios/ipa/*.ipa
+        - /tmp/xcodebuild_logs/*.log

@@ -1,0 +1,13 @@
+workflows:
+    package-workflow:
+      name: package-workflow
+      environment:
+        vars:
+          CREDENTIALS: <your encrypted ~/.pub-cache/credentials.json>
+        flutter: stable
+      scripts:
+        - flutter packages pub get
+        - echo $CREDENTIALS | base64 --decode > "$FLUTTER_ROOT/.pub-cache/credentials.json"
+        - flutter test
+        - flutter pub publish --dry-run
+        - flutter pub publish -f

@@ -1,0 +1,95 @@
+workflows:
+    do-all-workflow:
+      name: do-all-workflow
+      environment:
+        vars:
+          your_env_var: some_value
+          CM_KEYSTORE: <your_encyrpted_android_keystore>
+          CM_KEYSTORE_PASSWORD: <your_encrypted_keystore_password>
+          CM_KEY_ALIAS_PASSWORD: <your_encrypted_key_alias_password>
+          CM_KEY_ALIAS_USERNAME: <your_encrypted_key_alias>
+          CM_CERTIFICATE: <your_encrypted_developer_certificate>
+          CM_CERTIFICATE_PASSWORD: <your_encrypted_certificate_password>
+          CM_PROVISIONING_PROFILE: <your_encrypted_provisioning_profile>
+        flutter: stable
+        xcode: edge
+        cocoapods: default
+      cache:
+        cache_paths:
+          - $HOME/.pub-cache
+      triggering:
+        events:
+          - push
+        branch_patterns:
+          - pattern: your_branch_to_trigger_on_push
+            include: true
+            source: true
+      scripts:
+        - flutter emulators --launch apple_ios_simulator
+        - |
+          # set up key.properties
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.keystore
+          cat >> "$FCI_BUILD_DIR/project_directory/android/key.properties" <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_ALIAS_PASSWORD
+          keyAlias=$CM_KEY_ALIAS_USERNAME
+          storeFile=/tmp/keystore.keystore
+          EOF
+        - |
+          # set up local properties
+          echo "flutter.sdk=$HOME/programs/flutter" > "$FCI_BUILD_DIR/android/local.properties"
+        - cd project_directory && flutter packages pub get
+        - cd project_directory && flutter config --enable-web
+        - cd project_directory && flutter analyze
+        - cd project_directory && flutter drive --target=test_driver/button_pressing.dart
+        - cd project_directory && flutter test test/unit_test.dart
+        - cd project_directory && flutter build appbundle --release
+        - |
+          # generate signed universal apk with user specified keys
+          universal-apk generate \
+            --ks /tmp/keystore.keystore \
+            --ks-pass $CM_KEYSTORE_PASSWORD \
+            --ks-key-alias $CM_KEY_ALIAS_USERNAME \
+            --key-pass $CM_KEY_ALIAS_PASSWORD \
+            --pattern 'project_directory/build/**/outputs/**/*.aab'
+        - find . -name "Podfile" -execdir pod install \;
+        - keychain initialize
+        - |
+          # set up provisioning profiles
+          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          PROFILE_PATH="$(mktemp "$PROFILES_HOME"/$(uuidgen).mobileprovision)"
+          echo ${CM_PROVISIONING_PROFILE} | base64 --decode > $PROFILE_PATH
+          echo "Saved provisioning profile $PROFILE_PATH"
+        - |
+          # set up signing certificate
+          echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
+          keychain add-certificates --certificate /tmp/certificate.p12
+        - cd project_directory && flutter build ios --release --no-codesign
+        - xcode-project use-profiles
+        - cd project_directory && xcode-project build-ipa --workspace "ios/Your_workspace.xcworkspace" --scheme "Your_scheme"
+        - |
+          # build web
+          cd project_directory
+          flutter build web --release
+          cd build/web
+          7z a -r ../web.zip ./*
+      artifacts:
+        - build/**/outputs/**/*.apk
+        - build/**/outputs/**/*.aab
+        - build/**/outputs/**/mapping.txt
+        - build/ios/ipa/*.ipa
+        - /tmp/xcodebuild_logs/*.log
+        - build/web.zip
+        - flutter_drive.log
+      publishing:
+        email:
+          recipients:
+            - your_email
+        google_play:
+          credentials: <your_encrypted_google_play_credentials_json>
+          track: internal
+        app_store_connect:
+          app_id: <your_app_id>
+          apple_id: <your_apple_id>
+          password: <your_app_specific_password>

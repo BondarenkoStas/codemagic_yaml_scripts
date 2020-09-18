@@ -1,0 +1,38 @@
+workflows:
+  react-native-simple:
+    name: react native simple
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'simple_android'
+          include: true
+          source: true
+    scripts:
+      - npm install
+      - |
+        # set up debug keystore
+        rm -f ~/.android/debug.keystore
+        keytool -genkeypair \
+          -alias androiddebugkey \
+          -keypass android \
+          -keystore ~/.android/debug.keystore \
+          -storepass android \
+          -dname 'CN=Android Debug,O=Android,C=US' \
+          -keyalg 'RSA' \
+          -keysize 2048 \
+          -validity 10000
+      - echo "sdk.dir=$HOME/programs/android-sdk-macosx" > "$FCI_BUILD_DIR/android/local.properties"
+      - cd android && ./gradlew bundleRelease
+      - |
+        # generate universal apk signed with debug key
+        universal-apk generate \
+          --ks ~/.android/debug.keystore \
+          --ks-pass android \
+          --ks-key-alias androiddebugkey \
+          --key-pass android \
+          --pattern 'android/app/build/outputs/**/**/*.aab'
+    artifacts:
+      - android/app/build/outputs/**/**/*.apk
+      - android/app/build/outputs/**/**/*.aab
+      - /tmp/xcodebuild_logs/*.log
