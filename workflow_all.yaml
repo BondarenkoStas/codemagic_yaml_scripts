@@ -53,6 +53,10 @@ workflows:
         GCLOUD_SERVICE_CREDENTIALS:
         GOOGLE_PLAY_CREDENTIALS:
         APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD:
+        WEBHOOK_NOTIFICATION_URL:
+        APP_CENTER_TOKEN:
+        APP_CENTER_GROUP: 
+        APP_CENTER_APP_ID:
       xcode: 11.4.1      
       node: 12.13.1
     cache:
@@ -69,6 +73,7 @@ workflows:
         - pattern: 'test/*'
           include: true
           source: true
+      cancel_previous_builds: true
     scripts:
       - name: Redefine enverinment variables used in scripts after migration from Nevercode
         script: |
@@ -84,10 +89,10 @@ workflows:
           echo "export NEVERCODE_PULL_REQUEST=${FCI_PULL_REQUEST}" >> ~/NEVERCODE_ENV_VARS.sh
           echo "export NEVERCODE_PULL_REQUEST_NUMBER=${FCI_PULL_REQUEST_NUMBER}" >> ~/NEVERCODE_ENV_VARS.sh
           echo "export NEVERCODE_XUNIT_RESULTS_DIR=$HOME/xunit_results" >> ~/NEVERCODE_ENV_VARS.sh
-    - name: Pre-build script
-      script: |
-        export NEVERCODE_BRANCH=$FCI_BRANCH
-        chmod +x NC_PRE_BUILD_SCRIPT.sh && ./NC_PRE_BUILD_SCRIPT.sh
+      - name: Pre-build script
+        script: |
+          export NEVERCODE_BRANCH=$FCI_BRANCH
+          chmod +x NC_PRE_BUILD_SCRIPT.sh && ./NC_PRE_BUILD_SCRIPT.sh
     # prepare repo
       - name: Install gems
         script: |
@@ -198,6 +203,34 @@ workflows:
           else
             echo "$(git-changelog generate --previous-commit $FCI_PREVIOUS_COMMIT)" | tee release_notes.txt
           fi
+      - name: Publish to App Center
+        script: |
+          echo 'Installing App Center CLI tools'
+          npm install -g appcenter-cli
+          echo "Find build artifacts"
+          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -1)
+          echo "Found ipa at $IPA_PATH"
+          if [[ -z $IPA_PATH ]]
+          then
+              echo "No ipas were found, skip publishing to App Center"
+          else
+            if [[ -z $FCI_PREVIOUS_COMMIT ]]
+            then
+              echo "No finished builds found to generate changelog"
+              export RELEASE_NOTES='App submission via Codemagic'
+            else
+              export RELEASE_NOTES=$(git-changelog generate --previous-commit $FCI_PREVIOUS_COMMIT)
+              echo "Release notes generated"
+            fi
+            echo "\n\nPublishing $IPA_PATH to App Center"
+            # appcenter distribute release \
+            #     --group $APP_CENTER_GROUP \
+            #     --file $IPA_PATH \
+            #     --release-notes "$RELEASE_NOTES" \
+            #     --app $APP_CENTER_APP_ID \
+            #     --token $APP_CENTER_TOKEN \
+            #     --quiet
+          fi
     publishing:
       slack: 
         channel: '#'
@@ -210,6 +243,39 @@ workflows:
       app_store_connect:
         apple_id: a@gmail.com
         password: ${APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD}
+      scripts:
+        - name: Webhook notification
+          script: |
+            export PROJECT_URL=https://codemagic.io/app/${FCI_PROJECT_ID}
+            export VERSION_CODE=$(grep -o "versionCode\s\+\d\+" app/build.gradle | awk '{ print $2 }')
+            export VERSION_NAME=$(awk '/versionName ".*"/{print $2}' app/build.gradle | tr -d \''"\')
+            payload(){
+              echo '{
+                  "project": {
+                    "name": "Lingvist Android",
+                    "id": "'$FCI_PROJECT_ID'",
+                    "url": "'$PROJECT_URL'"
+                  },
+                  "build": {
+                    "id": "'$FCI_BUILD_ID'",
+                    "branch": "'$FCI_BRANCH'",
+                    "number": "'$BUILD_NUMBER'",
+                    "version_code": "'$VERSION_CODE'",
+                    "version_name": "'$VERSION_NAME'",
+                    "url": "'$PROJECT_URL'/build/'$FCI_BUILD_ID'"
+                  },
+                  "commit": {
+                    "hash": "'$FCI_COMMIT'",
+                    "commit_subject": "'$(git show -s --format=%s)'",
+                    "commit_body": "'$(git show -s --format=%b)'"
+                  },
+                  "artefacts": '$FCI_ARTIFACT_LINKS'
+                }'
+            }
+            curl $WEBHOOK_NOTIFICATION_URL \
+              --header "Content-Type: application/json" \
+              --request POST \
+              --data "$(payload)"
     artifacts:
     # ios artifacts
       - build/ios/ipa/*.ipa

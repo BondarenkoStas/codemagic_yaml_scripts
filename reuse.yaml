@@ -1,0 +1,142 @@
+definitions:
+  environment:
+    apple_signing: &apple_signing
+      CM_CERTIFICATE: Encrypted('bla')
+      CM_PROVISIONING_PROFILE: Encrypted('bla')
+    android_signing: &android_signing
+      CM_KEYSTORE: Encrypted('bla')
+      CM_KEYSTORE_PATH: '/tmp/keystore.keystore'
+      CM_KEYSTORE_PASSWORD: Encrypted('bla')
+      CM_KEY_ALIAS_PASSWORD: Encrypted('bla')
+      CM_KEY_ALIAS_USERNAME: bla
+  scripts:   
+    - &install_yarn
+      name: Install dependencies install
+      script: yarn
+    - &install_pods
+      name: Install pods
+      script: find . -name "Podfile" -execdir pod repo update \; -a -execdir pod install \;
+    - &ios_initialize_keychain
+      name: Set up keychain to be used for codesigning using Codemagic CLI 'keychain' command
+      script: |
+        keychain initialize
+    - &ios_set_provisioning_profiles
+      name: Set up Provisioning profiles from environment variables
+      script: |
+        PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+        mkdir -p "$PROFILES_HOME"
+        PROFILE_PATH="$(mktemp "$PROFILES_HOME"/$(uuidgen).mobileprovision)"
+        echo ${CM_PROVISIONING_PROFILE} | base64 --decode > $PROFILE_PATH
+        echo "Saved provisioning profile $PROFILE_PATH"
+    - &ios_set_signing_certificate
+      name: Set up signing certificate
+      script: |
+        echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
+        keychain add-certificates --certificate /tmp/certificate.p12
+    - &ios_set_signing_to_xcode
+      name: Set up code signing settings on Xcode project
+      script: |
+        xcode-project use-profiles
+    - &ios_build
+      name: Build ipa
+      script: |
+        xcode-project build-ipa \
+          --workspace Avios/BAExec.xcworkspace \
+          --scheme $XCODEBUILD_SCHEME \
+          --config $XCODEBUILD_CONFIG
+    - &android_pre_build_settings
+      name: Set up local properties
+      script: |
+        echo "sdk.dir=$HOME/programs/android-sdk-macosx" > "$FCI_BUILD_DIR/local.properties"
+        echo $CM_KEYSTORE | base64 --decode > $CM_KEYSTORE_PATH
+    - &android_build
+      name: Build Android
+      script: ./gradlew $GRADLE_TASK
+    - &android_generate_universal_apk
+      name: Generate universal APK
+      script: |
+        android-app-bundle build-universal-apk \
+          --bundle app/build/outputs/bundle/**/*.aab \
+          --ks $CM_KEYSTORE_PATH \
+          --ks-pass $CM_KEYSTORE_PASSWORD \
+          --ks-key-alias $CM_KEY_ALIAS_USERNAME \
+          --key-pass $CM_KEY_ALIAS_PASSWORD
+  publishing-debug: &publishing_debug
+    email:
+      recipients:
+        - example@example.com
+    slack:
+      channel: '#some_channel'
+  artifacts:
+    - &ipa build/ios/ipa/*.ipa
+    - &xcode_log /tmp/xcodebuild_logs/*.log
+    - &dsym $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    - &apk app/build/outputs/**/*.apk
+    - &aab app/build/outputs/**/*.aab
+    - &mapping-txt app/build/outputs/**/mapping.txt
+
+
+workflow:
+  ios-debug:
+    environment:
+      vars:
+        << : *apple_signing
+        XCODEBUILD_SCHEME: Debug
+        XCODEBUILD_CONFIG: Debug
+    scripts:
+      - *install_yarn
+      - *install_pods
+      - *ios_initialize_keychain
+      - *ios_set_provisioning_profiles
+      - *ios_set_signing_certificate
+      - *ios_set_signing_to_xcode
+      - *ios_build
+    publishing: *publishing_debug
+    artifacts: 
+      - *ipa
+      - *xcode_log
+      - *dsym
+  android-debug:
+    environment:
+      vars:
+        << : *android_signing
+        GRADLE_TASK: assembleRelease
+    scripts:
+      - *android_pre_build_settings
+      - *android_build
+    publishing: *publishing_debug
+    artifacts: 
+      - *apk
+      - *mapping-txt
+  production:
+    environment:
+      vars:
+        << : [*android_signing, *apple_signing]  
+        XCODEBUILD_SCHEME: Release
+        XCODEBUILD_CONFIG: Release
+        GRADLE_TASK: bundleRelease
+    scripts:
+      - *install_yarn
+      - *install_pods
+      - *ios_initialize_keychain
+      - *ios_set_provisioning_profiles
+      - *ios_set_signing_certificate
+      - *ios_set_signing_to_xcode
+      - *ios_build
+      - *android_pre_build_settings
+      - *android_build
+    publishing: 
+      <<: *publishing_debug
+      app_store_connect:
+        apple_id: fjsdkljfsdl
+        password: Encrypted('bla')
+      google_play: 
+        credentials: Encrypted('bla')
+        track: alpha
+    artifacts: 
+      - *ipa
+      - *xcode_log
+      - *dsym
+      - *apk
+      - *aab
+      - *mapping-txt
