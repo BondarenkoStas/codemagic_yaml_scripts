@@ -1,15 +1,10 @@
 # Current limitations:
 #   Codemagic can't parse xcodebuild tests to output in a nice format
 #
-# Notes:
-#   Your Enterprise worklfow certificate has expired. You will need to add a new one and provisioning profile to be able to run the workflow
-#   You will need to connect Slack to be able to publish there (see https://docs.codemagic.io/publishing/email-and-slack-notifications/#slack)
-#   You will need to add app-specific password to app_store_connect publishing (see https://docs.codemagic.io/publishing/publishing-to-app-store/#requirements)
 #   You still have NEVERCODE_BUILD_NUMBER env var used. There are 3 ways to deal with it (let's say your Nevercode build has number 1068, and Codemagic's will be the first one):
 #     1) Change it with BUILD_NUMBER (equivalent env var on Codemagic)
 #     2) export the env var as `export NEVERCODE_BUILD_NUMBER=$(($BUILD_NUMBER + 1068))` right before your `xcode-project command`
 #     3) set the build number with agvtool before the build script `cd Avios && agvtool new-version -all $(($BUILD_NUMBER + 1060))`
-
 
 # Scripts are executed as separate processes, which means created in one script memory env vars won't be available in the next script
 # That's why you need to save exports to a file and the source it in another script which will need those variables
@@ -40,12 +35,12 @@ workflows:
         # manual ios publishing
         CM_CERTIFICATE: 
         CM_PROVISIONING_PROFILE: 
+        CM_CERTIFICATE_PASSWORD: 
         # android code signing
         CM_KEYSTORE: 
         CM_KEYSTORE_PASSWORD: 
         CM_KEY_ALIAS_PASSWORD: 
         CM_KEY_ALIAS_USERNAME: 
-        # 
         # 
         SSH_KEY_GITHUB: 
         FASTLANE_PASSWORD: 
@@ -94,18 +89,25 @@ workflows:
           export NEVERCODE_BRANCH=$FCI_BRANCH
           chmod +x NC_PRE_BUILD_SCRIPT.sh && ./NC_PRE_BUILD_SCRIPT.sh
     # prepare repo
-      - name: Install gems
+      - name: Install dependencies
         script: |
+          yarn install --non-interactive
+          cd ios
           gem install bundler
-          find . -name "Gemfile" -execdir bundle install --path "$HOME/vendor/bundle" \; -a -execdir bundle update \;
-      - name: Yarn install
-        script: yarn
-      - name: Install pods
-        script: find . -name "Podfile" -execdir pod repo update \; -a -execdir pod install \;
-    # build ios
-      - name: Set up keychain to be used for codesigning using Codemagic CLI 'keychain' command
+          bundle install --path "$HOME/vendor/bundle"
+          bundle update
+          bundle exec pod repo update
+          bundle exec pod install
+      - name: Ionic
         script: |
-          keychain initialize
+          ionic cordova platform remove android --nosave
+          ionic cordova platform add android --confirm --no-interactive --noresources
+          ionic cordova platform remove ios --nosave
+          ionic cordova platform add ios --confirm --no-interactive --noresources 
+          ionic cordova build android --release --no-interactive --prod --device
+############################################# build ios
+      - name: Set up keychain to be used for codesigning using Codemagic CLI 'keychain' command
+        script: keychain initialize
       - name: Set up Provisioning profiles from environment variables
         script: |
           PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
@@ -118,8 +120,7 @@ workflows:
           echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
           keychain add-certificates --certificate /tmp/certificate.p12
       - name: Set up code signing settings on Xcode project
-        script: |
-          xcode-project use-profiles
+        script: xcode-project use-profiles
       - name: Build ipa
         script: |
           export NEVERCODE_BUILD_NUMBER=$(($BUILD_NUMBER + 1068))
@@ -139,7 +140,7 @@ workflows:
             -enableCodeCoverage YES \
             -destination 'platform=iOS Simulator,name=iPhone 11 Pro Max,OS=13.4' \
             test | xcpretty | tee "/tmp/xcodebuild_logs/xcodetest.log"
-    # build android
+############################### build android
       - name: Set up local properties
         script: echo "sdk.dir=$HOME/programs/android-sdk-macosx" > "$FCI_BUILD_DIR/local.properties"
       - name: Install gradle wrapper
@@ -168,6 +169,13 @@ workflows:
             --ks-pass $CM_KEYSTORE_PASSWORD \
             --ks-key-alias $CM_KEY_ALIAS_USERNAME \
             --key-pass $CM_KEY_ALIAS_PASSWORD
+      - name: Launch emulator
+        script: |
+          cd $ANDROID_HOME/tools
+          emulator -avd emulator &
+          adb wait-for-device
+      - name: Test Android
+        script: ./gradlew connectedAndroidTest
       # android firebase test lab
       - name: Build APK for tests
         script: ./gradlew -b app/build.gradle.kts assembleToyotaSwitchableDebugAndroidTest
@@ -281,7 +289,9 @@ workflows:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      - $HOME/Library/Developer/Xcode/DerivedData/**/*.embeddedframework
     # android artifacts
       - app/build/outputs/**/*.apk
       - app/build/outputs/**/*.aab
+      - platforms/android/app/build/outputs/**/*.apk
 
