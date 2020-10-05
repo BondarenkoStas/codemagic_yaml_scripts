@@ -1,5 +1,7 @@
 # Current limitations:
-#   Codemagic can't parse xcodebuild tests to output in a nice format
+#   Codemagic doesn't parse xcode test logs to output in a nice format
+#   Codemagic doesn't parse test logs to output in a nice format
+#   Codemagic doesn't have scheduled builds
 #
 #   You still have NEVERCODE_BUILD_NUMBER env var used. There are 3 ways to deal with it (let's say your Nevercode build has number 1068, and Codemagic's will be the first one):
 #     1) Change it with BUILD_NUMBER (equivalent env var on Codemagic)
@@ -11,10 +13,11 @@
 # In the same time everything what you call from inside a script (e.g. nc_postclone.sh) is a subprocess and has access to the env vars available in the script
 #
 # Pay attention that strings encrypted as env vars can be used right away (e.g. NC_KEY_PASSWORD or GOOGLE_PLAY_CREDENTIALS), while files encrypted as env vars should be base64 decoded first (e.g. CM_CERTIFICATE)
+# 
 # In a long run it would make sense to change the scirpts in the repository to use Codemagic's env vars, not Nevercode ones, and simplify the workflows
 #
 # For app store connect publishing you need to fill APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD  (see https://support.apple.com/en-us/HT204397)
-# For slack notifications you need to first connect Slack (see https://docs.codemagic.io/publishing/email-and-slack-notifications/#slack)
+# For slack notifications you need to first connect Slack (see https://docs.codemagic.io/publishing-yaml/distribution/#slack)
 #
 # Your apple certificates (CM_CERTIFICATE) is exported with empty password. If you change it to a certificate with password, you will need to add an env var CM_CERTIFICATE_PASSWORD
 # and include it to the command as `keychain add-certificates --certificate /tmp/certificate.p12 --certificate-password $CM_CERTIFICATE_PASSWORD`
@@ -27,16 +30,12 @@ workflows:
     environment:
       vars:
         FCI_CLONE_DEPTH: 1
-        # automatic ios publishing
-        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
-        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(...)
-        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)
-        CERTIFICATE_PRIVATE_KEY: Encrypted(...)
         # manual ios publishing
         CM_CERTIFICATE: 
         CM_PROVISIONING_PROFILE: 
         CM_CERTIFICATE_PASSWORD: 
         # android code signing
+        CM_KEYSTORE_PATH:
         CM_KEYSTORE: 
         CM_KEYSTORE_PASSWORD: 
         CM_KEY_ALIAS_PASSWORD: 
@@ -46,6 +45,7 @@ workflows:
         FASTLANE_PASSWORD: 
         MATCH_PASSWORD:
         GCLOUD_SERVICE_CREDENTIALS:
+        GCLOUD_PROJECT: woven-voyage-217607
         GOOGLE_PLAY_CREDENTIALS:
         APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD:
         WEBHOOK_NOTIFICATION_URL:
@@ -139,7 +139,7 @@ workflows:
             -sdk iphonesimulator \
             -enableCodeCoverage YES \
             -destination 'platform=iOS Simulator,name=iPhone 11 Pro Max,OS=13.4' \
-            test | xcpretty | tee "/tmp/xcodebuild_logs/xcodetest.log"
+            test | xcpretty 2>&1 | tee "/tmp/xcodebuild_logs/xcodetest.log"
 ############################### build android
       - name: Set up local properties
         script: echo "sdk.dir=$HOME/programs/android-sdk-macosx" > "$FCI_BUILD_DIR/local.properties"
@@ -184,7 +184,7 @@ workflows:
           GCLOUD_SERVICE_CREDENTIALS_PATH=$FCI_BUILD_DIR/google-services-credentials.json
           echo $GCLOUD_SERVICE_CREDENTIALS | base64 --decode > $GCLOUD_SERVICE_CREDENTIALS_PATH
           gcloud auth activate-service-account --key-file=$GCLOUD_SERVICE_CREDENTIALS_PATH
-          gcloud config set project woven-voyage-217607
+          gcloud config set project ${GCLOUD_PROJECT}
       - name: Test
         script: |
           APP_PATH=$(find app/build/outputs/bundle -name "*.apk" | head -1)
@@ -294,4 +294,3 @@ workflows:
       - app/build/outputs/**/*.apk
       - app/build/outputs/**/*.aab
       - platforms/android/app/build/outputs/**/*.apk
-
