@@ -175,7 +175,10 @@ workflows:
           emulator -avd emulator &
           adb wait-for-device
       - name: Test Android
-        script: ./gradlew connectedAndroidTest
+        script: |
+          set -e
+          ./gradlew connectedAndroidTest
+          adb logcat -d > emulator.log
       # android firebase test lab
       - name: Build APK for tests
         script: ./gradlew -b app/build.gradle.kts assembleToyotaSwitchableDebugAndroidTest
