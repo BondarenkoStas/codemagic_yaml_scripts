@@ -299,4 +299,5 @@ workflows:
       - app/build/outputs/logs
       - app/build/outputs/**/*.apk
       - app/build/outputs/**/*.aab
+      - app/build/outputs/**/mapping.txt
       - platforms/android/app/build/outputs/**/*.apk
