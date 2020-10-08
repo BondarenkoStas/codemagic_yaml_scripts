@@ -52,6 +52,11 @@ workflows:
         APP_CENTER_TOKEN:
         APP_CENTER_GROUP: 
         APP_CENTER_APP_ID:
+        
+        FIREBASE_API_TOKEN: Encrypted()
+        FIREBASE_APP_ID: 
+        FIREBASE_TESTER_GROUPS: 
+        FIREBASE_TESTER_EMAILS:
       xcode: 11.4.1      
       node: 12.13.1
     cache:
@@ -253,6 +258,31 @@ workflows:
             #     --app $APP_CENTER_APP_ID \
             #     --token $APP_CENTER_TOKEN \
             #     --quiet
+          fi
+      - name: Firebase App Distribution
+        script: |
+          echo "Find build artifacts"
+          APK_PATH=$(find app/build/outputs -name '*.apk' ! -name '*debug*' | head -1)
+          echo "Found apk at $APK_PATH"
+          if [[ -z $APK_PATH ]]
+          then
+              echo "No apk found, skip publishing to Firebase App Distribution"
+          else
+            if [[ -z $FCI_PREVIOUS_COMMIT ]]
+            then
+              echo "No finished builds found to generate changelog"
+              export RELEASE_NOTES='App submission via Codemagic'
+            else
+              export RELEASE_NOTES=$(git-changelog generate --previous-commit $FCI_PREVIOUS_COMMIT)
+              echo "Release notes generated"
+            fi
+            echo "\n\nPublishing $APK_PATH to Firebase App Distribution"
+            # firebase appdistribution:distribute $APK_PATH \
+            #   --app $FIREBASE_APP_ID \
+            #   --token $FIREBASE_API_TOKEN \
+            #   --release-notes "$RELEASE_NOTES" \
+            #   --testers $FIREBASE_TESTER_EMAILS \
+            #   --groups $FIREBASE_TESTER_GROUPS
           fi
     publishing:
       slack: 
