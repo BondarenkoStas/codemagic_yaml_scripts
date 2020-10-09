@@ -46,8 +46,6 @@ workflows:
         MATCH_PASSWORD:
         GCLOUD_SERVICE_CREDENTIALS:
         GCLOUD_PROJECT: woven-voyage-217607
-        GOOGLE_PLAY_CREDENTIALS:
-        APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD:
         WEBHOOK_NOTIFICATION_URL:
         APP_CENTER_TOKEN:
         APP_CENTER_GROUP: 
@@ -57,7 +55,7 @@ workflows:
         FIREBASE_APP_ID: 
         FIREBASE_TESTER_GROUPS: 
         FIREBASE_TESTER_EMAILS:
-      xcode: 11.4.1      
+      xcode: 11.4.1
       node: 12.13.1
     cache:
       cache_paths:
@@ -291,11 +289,11 @@ workflows:
         recipients:
           - a@gmail.com
       google_play:
-        credentials: ${GOOGLE_PLAY_CREDENTIALS_DECODED}
+        credentials: Encrypt(...)
         track: alpha
       app_store_connect:
         apple_id: a@gmail.com
-        password: ${APP_STORE_CONNECT_APP_SPECIFIC_PASSWORD}
+        password: # please paste your app store connect app specific password
       scripts:
         - name: Webhook notification
           script: |
