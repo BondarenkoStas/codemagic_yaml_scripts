@@ -340,4 +340,4 @@ workflows:
       - app/build/outputs/**/*.apk
       - app/build/outputs/**/*.aab
       - app/build/outputs/**/mapping.txt
-      - platforms/android/app/build/outputs/**/*.apk
+      - platforms/android/build/outputs/**/*.apk
