@@ -184,6 +184,20 @@ workflows:
             --ks-pass $CM_KEYSTORE_PASSWORD \
             --ks-key-alias $CM_KEY_ALIAS_USERNAME \
             --key-pass $CM_KEY_ALIAS_PASSWORD
+            name: Sign APK
+      - name: Sign apk
+        script: |
+          set -e
+          UNSIGNED_APK_PATH=$(find app/build/outputs -name "*.apk" | head -1)
+          SIGNED_APK_PATH=$(echo $UNSIGNED_APK_PATH | sed 's/-unsigned//')
+          apksigner sign \
+            --ks $KEYSTORE_PATH \
+            --ks-pass pass:$KEYSTORE_PASSWORD \
+            --ks-key-alias $KEY_ALIAS \
+            --key-pass pass:$KEY_PASSWORD \
+            --in $UNSIGNED_APK_PATH \
+            --out $SIGNED_APK_PATH
+          rm $UNSIGNED_APK_PATH
       - name: Launch emulator
         script: |
           cd $ANDROID_HOME/tools
